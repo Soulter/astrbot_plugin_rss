@@ -1,8 +1,10 @@
 # astrbot-plugin-rss
 
-Get Everything You Want to Know / 获取你想知道的一切。
+✨ Get Everything You Want to Know / 获取你想知道的一切。✨
 
 支持通过 RSSHub 路由和直接 URL 订阅 RSS 源，并定时获取最新的 RSS 内容。
+
+<img width=300 src="https://github.com/user-attachments/assets/16886f57-886c-4aad-abd1-2edd5d1f2c06">
 
 ## 功能
 
