@@ -46,9 +46,10 @@ class Main:
         '''定时任务回调'''
         self.logger.info(f"RSS 定时任务触发: {url} - {user}")
         last_update = self.data_handler.data[url]["subscribers"][user]["last_update"]
+        latest_link = self.data_handler.data[url]["subscribers"][user]["latest_link"]
         max_items_per_poll = self.data_handler.data["settings"]["max_items_per_poll"]
         # 拉取 RSS
-        rss_items = await self.poll_rss(url, user, num=max_items_per_poll , after_timestamp=last_update)
+        rss_items = await self.poll_rss(url, user, num=max_items_per_poll, after_timestamp=last_update, after_link=latest_link)
         max_ts = last_update
         for item in rss_items:
             # 发送消息
