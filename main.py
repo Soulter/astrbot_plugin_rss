@@ -22,7 +22,7 @@ class Main:
             if url == "rsshub_endpoints" or url == "settings":
                 continue
             for user, sub_info in info["subscribers"].items():
-                self.scheduler.add_job(self.poll_rss, 'cron', **self.parse_cron_expr(sub_info["cron_expr"]), args=[url, user])
+                self.scheduler.add_job(self.cron_task_callback, 'cron', **self.parse_cron_expr(sub_info["cron_expr"]), args=[url, user])
     
     def parse_cron_expr(self, cron_expr: str):
         fields = cron_expr.split(" ")
@@ -194,7 +194,7 @@ class Main:
             chan_title = ret["title"]
             chan_desc = ret["description"]
         
-        self.scheduler.add_job(self.poll_rss, 'cron', **self.parse_cron_expr(cron_expr), args=[url, message.unified_msg_origin])
+        self.scheduler.add_job(self.cron_task_callback, 'cron', **self.parse_cron_expr(cron_expr), args=[url, message.unified_msg_origin])
                 
         return CommandResult().message(f"添加成功。频道信息：\n标题: {chan_title}\n描述: {chan_desc}").use_t2i(False)
     
@@ -210,7 +210,7 @@ class Main:
             chan_title = ret["title"]
             chan_desc = ret["description"]
             
-        self.scheduler.add_job(self.poll_rss, 'cron', **self.parse_cron_expr(" ".join(args[3:8])), args=[args[2], message.unified_msg_origin])
+        self.scheduler.add_job(self.cron_task_callback, 'cron', **self.parse_cron_expr(" ".join(args[3:8])), args=[args[2], message.unified_msg_origin])
         
         return CommandResult().message(f"添加成功。频道信息：\n标题: {chan_title}\n描述: {chan_desc}").use_t2i(False)
     
