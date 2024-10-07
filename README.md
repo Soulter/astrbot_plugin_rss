@@ -56,7 +56,8 @@ Cron 表达式格式：`* * * * *`，分别表示分钟、小时、日、月、�
 "settings": {
     "title_max_length": 30, # 推送的标题最大长度。
     "description_max_length": 500, # 推送的描述最大长度。
-    "t2i": false # 是否需要将文字转换为图片发送。
+    "t2i": false, # 是否需要将文字转换为图片发送。
+    "max_items_per_poll": 3 # 每次获取的最大条目数。 -1 表示不限制。
 }
 ```
 

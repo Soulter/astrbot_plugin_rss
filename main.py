@@ -44,10 +44,12 @@ class Main:
             
     async def cron_task_callback(self, url: str, user: str):
         '''定时任务回调'''
+        self.logger.info(f"RSS 定时任务触发: {url} - {user}")
         last_update = self.data_handler.data[url]["subscribers"][user]["last_update"]
+        max_items_per_poll = self.data_handler.data["settings"]["max_items_per_poll"]
         # 拉取 RSS
-        rss_items = await self.poll_rss(url, user, after_timestamp=last_update)
-        max_ts = 0
+        rss_items = await self.poll_rss(url, user, num=max_items_per_poll , after_timestamp=last_update)
+        max_ts = last_update
         for item in rss_items:
             # 发送消息
             # TODO: 折叠
@@ -58,10 +60,13 @@ class Main:
             self.data_handler.save_data()
             max_ts = max(max_ts, item.pubDate_timestamp)
         # 更新最后更新时间
-        self.data_handler.data[url]["subscribers"][user]["last_update"] = max_ts
+        if rss_items:
+            self.data_handler.data[url]["subscribers"][user]["last_update"] = max_ts
+            self.data_handler.data[url]["subscribers"][user]["latest_link"] = rss_items[0].link
+            self.data_handler.save_data()
         
         
-    async def poll_rss(self, url: str, user: str, num: int = -1, after_timestamp: int = 0) -> List[RSSItem]:
+    async def poll_rss(self, url: str, user: str, num: int = -1, after_timestamp: int = 0, after_link: str = "") -> List[RSSItem]:
         '''从站点拉取RSS信息'''
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -77,7 +82,7 @@ class Main:
                 
                 for item in items:
                     try:
-                        chan_title = self.data_handler.data[url]["info"]["title"]
+                        chan_title = self.data_handler.data[url]["info"]["title"] if url in self.data_handler.data else "未知频道"
                         
                         title = item.xpath("title")[0].text
                         if len(title) > self.data_handler.data["settings"]["title_max_length"]:
@@ -85,26 +90,40 @@ class Main:
                         
                         link = item.xpath("link")[0].text
                         if not re.match(r'^https?://', link):
-                            link = self.data_handler.data[url]["info"]["root_url"] + link
+                            link = self.data_handler.get_root_url(url) + link
                         
-                        pub_date = item.xpath("pubDate")[0].text
                         description = item.xpath("description")[0].text
                         
                         description = self.data_handler.strip_html(description)
                         if len(description) > self.data_handler.data["settings"]["description_max_length"]:
                             description = description[:self.data_handler.data["settings"]["description_max_length"]] + "..."
                         
-                        pub_date_parsed = time.strptime(pub_date.replace("GMT", "+0000"), "%a, %d %b %Y %H:%M:%S %z")
-                        pub_date_timestamp = int(time.mktime(pub_date_parsed))
-                        
-                        if pub_date_timestamp > after_timestamp:
-                            rss_items.append(RSSItem(chan_title, title, link, description, pub_date, pub_date_timestamp))
-                            cnt += 1
-                            if num != -1 and cnt >= num:
+                        if item.xpath("pubDate"):
+                            # 根据 pubDate 判断是否为新内容
+                            pub_date = item.xpath("pubDate")[0].text
+                            pub_date_parsed = time.strptime(pub_date.replace("GMT", "+0000"), "%a, %d %b %Y %H:%M:%S %z")
+                            pub_date_timestamp = int(time.mktime(pub_date_parsed))
+                            if pub_date_timestamp > after_timestamp:
+                                rss_items.append(RSSItem(chan_title, title, link, description, pub_date, pub_date_timestamp))
+                                cnt += 1
+                                if num != -1 and cnt >= num:
+                                    break
+                            else:
                                 break
+                        else:
+                            # 根据 link 判断是否为新内容
+                            if link != after_link:
+                                rss_items.append(RSSItem(chan_title, title, link, description, "", 0))
+                                cnt += 1
+                                if num != -1 and cnt >= num:
+                                    break
+                            else:
+                                break
+                        
                     except Exception as e:
                         self.logger.error(f"rss: 解析 {url} 失败: {str(e)}")
                         await self.context.send_message(user, CommandResult().message(f"rss 定时任务: 解析 {url} 失败: {str(e)}"))
+                        break
 
                 return rss_items
                 
@@ -217,29 +236,30 @@ class Main:
     async def _add_url(self, url: str, cron_expr: str, message: AstrMessageEvent):
         user = message.unified_msg_origin
         if url in self.data_handler.data:
+            latest_item = await self.poll_rss(url, user, 1)
             self.data_handler.data[url]["subscribers"][user] = {
                 "cron_expr": cron_expr,
-                "last_update": 0,
+                "last_update": latest_item[0].pubDate_timestamp,
+                "latest_link": latest_item[0].link,
             }
         else:
             try:
                 title, desc = await self.parse_channel_info(url)
+                latest_item = await self.poll_rss(url, user, 1)
             except Exception as e:
-                return CommandResult().error(f"解析频道信息失败: {str(e)}")
-            
-            root_url = self.data_handler.get_root_url(url)
-        
+                return CommandResult().error(f"解析频道信息失败: {str(e)}").use_t2i(False)
+                    
             self.data_handler.data[url] = {
                 "subscribers": {
                     user: {
                         "cron_expr": cron_expr,
-                        "last_update": int(time.time()),
+                        "last_update": latest_item[0].pubDate_timestamp,
+                        "latest_link": latest_item[0].link,
                     }
                 },
                 "info": {
                     "title": title,
                     "description": desc,
-                    "root_url": root_url,
                 }
             }
         self.data_handler.save_data()

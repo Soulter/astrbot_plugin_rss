@@ -15,6 +15,7 @@ class DataHandler:
                 "title_max_length": 30,
                 "description_max_length": 300,
                 "t2i": False,
+                "max_items_per_poll": 3, # 每次获取的最大条目数
             }
         }
         self.data = self.load_data()
@@ -40,7 +41,7 @@ class DataHandler:
     def save_data(self):
         '''保存数据到数据文件'''
         with open(self.config_path, "w") as f:
-            json.dump(self.data, f, indent=2)
+            json.dump(self.data, f, indent=2, ensure_ascii=False)
 
     def parse_channel_info(self, text):
         '''解析RSS频道信息'''
