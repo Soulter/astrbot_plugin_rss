@@ -1,17 +1,23 @@
 {
     "title_max_length": {
-        "description": "推送的标题最大长度。",
+        "description": "推送的标题最大长度，超过会被截取",
         "type": "int",
         "hint": "推送的标题最大长度。",
         "obvious_hint": true,
         "default": 30
     },
     "description_max_length": {
-        "description": "推送的描述最大长度。",
+        "description": "推送的描述最大长度，超过会被截取",
         "type": "int",
         "hint": "推送的描述最大长度。",
         "obvious_hint": true,
         "default": 500
+    },
+    "compose": {
+        "description": "（仅限qq）是否将消息合并，以转发的方式组合发送",
+        "type": "bool",
+        "hint": "是否将消息合并，以转发的方式组合发送",
+        "default": true
     },
     "t2i": {
         "description": "是否需要将文字转换为图片发送",
@@ -55,6 +61,32 @@
                 "type": "int",
                 "hint": "每次转换图片的最大条目数。 -1 表示不限制。",
                 "default": 3
+            }
+        }
+    },
+    "baidu_translate": {
+        "description": "百度翻译配置",
+        "type": "object",
+        "hint": "用于将日文推特翻译成中文",
+        "default": {},
+        "items": {
+            "app_id": {
+                "description": "百度翻译 App ID",
+                "type": "string",
+                "hint": "在百度翻译开放平台申请的 App ID",
+                "default": ""
+            },
+            "secret_key": {
+                "description": "百度翻译 Secret Key",
+                "type": "string",
+                "hint": "在百度翻译开放平台申请的 Secret Key",
+                "default": ""
+            },
+            "translate_title": {
+                "description": "是否同时翻译标题",
+                "type": "bool",
+                "hint": "开启后标题也会翻译成中文",
+                "default": true
             }
         }
     }
