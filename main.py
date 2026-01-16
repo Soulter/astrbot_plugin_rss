@@ -408,9 +408,9 @@ class RssPlugin(Star):
             yield event.plain_result("索引越界")
             return
         else:
-            # TODO:删除对应的定时任务
-            self.scheduler.remove_job()
-            self.data_handler.data["rsshub_endpoints"].pop(idx)
+            # 刷新定时任务
+            self._fresh_asyncIOScheduler()
+            self.data_handler.data["rsshub_endpoints"].pop(idx)            
             self.data_handler.save_data()
             yield event.plain_result("删除成功")
 
