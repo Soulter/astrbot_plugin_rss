@@ -169,13 +169,28 @@ class RssPlugin(Star):
         after_timestamp: int = 0,
         after_link: str = "",
     ) -> List[RSSItem]:
-        """从站点拉取RSS信息"""
+        """从站点拉取RSS/Atom信息"""
         text = await self.parse_channel_info(url)
         if text is None:
             self.logger.error(f"rss: 无法解析站点 {url} 的RSS信息")
             return []
         root = etree.fromstring(text)
-        items = root.xpath("//item")
+
+        # 检测是 RSS 还是 Atom 格式
+        # Atom 可能使用命名空间，如 <feed xmlns="http://www.w3.org/2005/Atom">
+        is_atom = root.tag == "feed" or root.tag.endswith("}feed") or "atom" in etree.tostring(root, encoding="unicode")[:200].lower()
+
+        # 处理 Atom 命名空间
+        nsmap = {"atom": "http://www.w3.org/2005/Atom"}
+        if is_atom:
+            items = root.xpath("//atom:entry", namespaces=nsmap)
+            if not items:
+                # 尝试不使用命名空间的方式
+                items = root.xpath("//entry")
+                nsmap = None  # 无命名空间
+        else:
+            items = root.xpath("//item")
+            nsmap = None
 
         cnt = 0
         rss_items = []
@@ -188,59 +203,113 @@ class RssPlugin(Star):
                     else "未知频道"
                 )
 
-                title = item.xpath("title")[0].text
+                # 解析标题
+                if is_atom and nsmap:
+                    title_nodes = item.xpath("atom:title", namespaces=nsmap)
+                else:
+                    title_nodes = item.xpath("title")
+                title = title_nodes[0].text.strip() if title_nodes and title_nodes[0].text else ""
                 if len(title) > self.title_max_length:
                     title = title[: self.title_max_length] + "..."
 
-                link = item.xpath("link")[0].text
-                if not re.match(r"^https?://", link):
+                # 解析链接 - Atom 和 RSS 格式不同
+                link = ""
+                if is_atom:
+                    if nsmap:
+                        link_nodes = item.xpath("atom:link[@rel='alternate']/@href", namespaces=nsmap)
+                        if not link_nodes:
+                            link_nodes = item.xpath("atom:link/@href", namespaces=nsmap)
+                    else:
+                        link_nodes = item.xpath("link[@rel='alternate']/@href")
+                        if not link_nodes:
+                            link_nodes = item.xpath("link/@href")
+                    link = link_nodes[0] if link_nodes else ""
+                else:
+                    link_nodes = item.xpath("link")
+                    if link_nodes:
+                        link = link_nodes[0].text or ""
+                if link and not re.match(r"^https?://", link):
                     link = self.data_handler.get_root_url(url) + link
 
-                description = item.xpath("description")[0].text
+                # 解析描述/内容 - Atom 和 RSS 格式不同
+                if is_atom:
+                    if nsmap:
+                        content_nodes = item.xpath("atom:content", namespaces=nsmap)
+                        summary_nodes = item.xpath("atom:summary", namespaces=nsmap)
+                    else:
+                        content_nodes = item.xpath("content")
+                        summary_nodes = item.xpath("summary")
+                    description = content_nodes[0].text if content_nodes else (summary_nodes[0].text if summary_nodes else "")
+                else:
+                    content_nodes = item.xpath("content:encoded")
+                    description = content_nodes[0].text if content_nodes else (item.xpath("description")[0].text if item.xpath("description") else "")
 
-                pic_url_list = self.data_handler.strip_html_pic(description)
-                description = self.data_handler.strip_html(description)
+                pic_url_list = self.data_handler.strip_html_pic(description) if description else []
+                description = self.data_handler.strip_html(description) if description else ""
 
                 if len(description) > self.description_max_length:
                     description = (
                         description[: self.description_max_length] + "..."
                     )
 
-                if item.xpath("pubDate"):
-                    # 根据 pubDate 判断是否为新内容
-                    pub_date = item.xpath("pubDate")[0].text
-                    pub_date_parsed = time.strptime(
-                        pub_date.replace("GMT", "+0000"),
-                        "%a, %d %b %Y %H:%M:%S %z",
-                    )
-                    pub_date_timestamp = int(time.mktime(pub_date_parsed))
-                    if pub_date_timestamp > after_timestamp:
-                        rss_items.append(
-                            RSSItem(
-                                chan_title,
-                                title,
-                                link,
-                                description,
-                                pub_date,
-                                pub_date_timestamp,
-                                pic_url_list
+                # 解析日期 - Atom 使用 published/updated，RSS 使用 pubDate
+                pub_date = ""
+                pub_date_timestamp = 0
+                if is_atom:
+                    if nsmap:
+                        date_nodes = item.xpath("atom:published", namespaces=nsmap)
+                        if not date_nodes:
+                            date_nodes = item.xpath("atom:updated", namespaces=nsmap)
+                    else:
+                        date_nodes = item.xpath("published")
+                        if not date_nodes:
+                            date_nodes = item.xpath("updated")
+                    if date_nodes and date_nodes[0].text:
+                        try:
+                            pub_date = date_nodes[0].text.strip()
+                            # Atom 日期格式: 2026-03-06T15:17:30Z
+                            pub_date_parsed = time.strptime(
+                                pub_date.replace("Z", "+0000"),
+                                "%Y-%m-%dT%H:%M:%S%z"
                             )
-                        )
-                        cnt += 1
-                        if num != -1 and cnt >= num:
-                            break
-                    else:
-                        break
+                            pub_date_timestamp = int(time.mktime(pub_date_parsed))
+                        except Exception as e:
+                            self.logger.error(f"[RSS] Atom日期解析失败: {e}")
                 else:
-                    # 根据 link 判断是否为新内容
-                    if link != after_link:
-                        rss_items.append(
-                            RSSItem(chan_title, title, link, description, "", 0, pic_url_list)
+                    date_nodes = item.xpath("pubDate")
+                    if date_nodes and date_nodes[0].text:
+                        try:
+                            pub_date = date_nodes[0].text
+                            pub_date_parsed = time.strptime(
+                                pub_date.replace("GMT", "+0000"),
+                                "%a, %d %b %Y %H:%M:%S %z",
+                            )
+                            pub_date_timestamp = int(time.mktime(pub_date_parsed))
+                        except Exception as e:
+                            self.logger.error(f"[RSS] RSS日期解析失败: {e}")
+
+                # 根据时间或链接判断是否为新内容
+                if pub_date_timestamp > after_timestamp:
+                    rss_items.append(
+                        RSSItem(
+                            chan_title,
+                            title,
+                            link,
+                            description,
+                            pub_date,
+                            pub_date_timestamp,
+                            pic_url_list
                         )
-                        cnt += 1
-                        if num != -1 and cnt >= num:
-                            break
-                    else:
+                    )
+                    cnt += 1
+                    if num != -1 and cnt >= num:
+                        break
+                elif pub_date_timestamp == 0 and link != after_link:
+                    rss_items.append(
+                        RSSItem(chan_title, title, link, description, "", 0, pic_url_list)
+                    )
+                    cnt += 1
+                    if num != -1 and cnt >= num:
                         break
 
             except Exception as e:
@@ -280,6 +349,8 @@ class RssPlugin(Star):
         user = message.unified_msg_origin
         if url in self.data_handler.data:
             latest_item = await self.poll_rss(url)
+            if not latest_item:
+                return message.plain_result("该RSS源当前没有内容，无法添加订阅")
             self.data_handler.data[url]["subscribers"][user] = {
                 "cron_expr": cron_expr,
                 "last_update": latest_item[0].pubDate_timestamp,
@@ -290,6 +361,8 @@ class RssPlugin(Star):
                 text = await self.parse_channel_info(url)
                 title, desc = self.data_handler.parse_channel_text_info(text)
                 latest_item = await self.poll_rss(url)
+                if not latest_item:
+                    return message.plain_result("该RSS源当前没有内容，无法添加订阅")
             except Exception as e:
                 return message.plain_result(f"解析频道信息失败: {str(e)}")
 
@@ -407,11 +480,38 @@ class RssPlugin(Star):
         if idx < 0 or idx >= len(self.data_handler.data["rsshub_endpoints"]):
             yield event.plain_result("索引越界")
             return
+
+        endpoint = self.data_handler.data["rsshub_endpoints"][idx]
+
+        # 找出所有使用该 endpoint 的订阅
+        urls_to_remove = []
+        for url in self.data_handler.data:
+            if url == "rsshub_endpoints" or url == "settings":
+                continue
+            if url.startswith(endpoint):
+                urls_to_remove.append(url)
+
+        # 删除相关的订阅
+        removed_subs = []
+        for url in urls_to_remove:
+            info = self.data_handler.data[url]["info"]
+            removed_subs.append(f"- {info['title']}: {url}")
+            del self.data_handler.data[url]
+
+        # 删除 endpoint
+        self.data_handler.data["rsshub_endpoints"].pop(idx)
+        self.data_handler.save_data()
+
+        # 刷新定时任务
+        self._fresh_asyncIOScheduler()
+
+        # 构建返回消息
+        if removed_subs:
+            yield event.plain_result(
+                f"删除成功，同时删除了 {len(removed_subs)} 个使用该 endpoint 的订阅：\n" +
+                "\n".join(removed_subs)
+            )
         else:
-            # TODO:删除对应的定时任务
-            self.scheduler.remove_job()
-            self.data_handler.data["rsshub_endpoints"].pop(idx)
-            self.data_handler.save_data()
             yield event.plain_result("删除成功")
 
     @rss.command("add")

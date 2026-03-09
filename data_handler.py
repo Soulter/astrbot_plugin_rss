@@ -37,10 +37,30 @@ class DataHandler:
             json.dump(self.data, f, indent=2, ensure_ascii=False)
 
     def parse_channel_text_info(self, text):
-        """解析RSS频道信息"""
+        """解析RSS/Atom频道信息"""
         root = etree.fromstring(text)
-        title = root.xpath("//title")[0].text
-        description = root.xpath("//description")[0].text
+        # 检测是否为 Atom 格式
+        is_atom = root.tag == "feed" or root.tag.endswith("}feed")
+
+        if is_atom:
+            # Atom 格式：标题在根元素中，描述可能在 subtitle 中
+            nsmap = {"atom": "http://www.w3.org/2005/Atom"}
+            title_nodes = root.xpath("//atom:title", namespaces=nsmap)
+            if not title_nodes:
+                # 尝试无命名空间
+                title_nodes = root.xpath("//*[local-name()='title']")
+            subtitle_nodes = root.xpath("//atom:subtitle", namespaces=nsmap)
+            if not subtitle_nodes:
+                # 尝试无命名空间
+                subtitle_nodes = root.xpath("//*[local-name()='subtitle']")
+            title = title_nodes[0].text.strip() if title_nodes and title_nodes[0].text else "未知频道"
+            description = subtitle_nodes[0].text.strip() if subtitle_nodes and subtitle_nodes[0].text else ""
+        else:
+            # RSS 格式
+            title_nodes = root.xpath("//title")
+            description_nodes = root.xpath("//description")
+            title = title_nodes[0].text.strip() if title_nodes and title_nodes[0].text else "未知频道"
+            description = description_nodes[0].text.strip() if description_nodes and description_nodes[0].text else ""
         return title, description
 
     def strip_html_pic(self, html)-> list[str]:
