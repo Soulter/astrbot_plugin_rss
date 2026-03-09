@@ -177,8 +177,8 @@ class RssPlugin(Star):
         root = etree.fromstring(text)
 
         # 检测是 RSS 还是 Atom 格式
-        # Atom 可能使用命名空间，如 <feed xmlns="http://www.w3.org/2005/Atom">
-        is_atom = root.tag == "feed" or root.tag.endswith("}feed") or "atom" in etree.tostring(root, encoding="unicode")[:200].lower()
+        # Atom 使用 <feed> 根标签，RSS 使用 <rss>
+        is_atom = root.tag == "feed" or root.tag.endswith("}feed")
 
         # 处理 Atom 命名空间
         nsmap = {"atom": "http://www.w3.org/2005/Atom"}
@@ -190,7 +190,7 @@ class RssPlugin(Star):
                 nsmap = None  # 无命名空间
         else:
             items = root.xpath("//item")
-            nsmap = None
+            nsmap = None  # RSS 不需要命名空间前缀
 
         cnt = 0
         rss_items = []
@@ -241,7 +241,8 @@ class RssPlugin(Star):
                         summary_nodes = item.xpath("summary")
                     description = content_nodes[0].text if content_nodes else (summary_nodes[0].text if summary_nodes else "")
                 else:
-                    content_nodes = item.xpath("content:encoded")
+                    # 使用 name() 匹配带冒号的元素名（如 content:encoded）
+                    content_nodes = item.xpath("*[name()='content:encoded' or name()='content']")
                     description = content_nodes[0].text if content_nodes else (item.xpath("description")[0].text if item.xpath("description") else "")
 
                 pic_url_list = self.data_handler.strip_html_pic(description) if description else []
