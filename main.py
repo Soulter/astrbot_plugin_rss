@@ -325,17 +325,19 @@ class RssPlugin(Star):
     async def _get_chain_components(self, item: RSSItem):
         """组装消息链"""
         comps = []
-        comps.append(Comp.Plain(f"频道 {item.chan_title} 最新 Feed\n---\n标题: {item.title}\n---\n"))
+        # 将所有文本内容合并为一个消息，避免平台分段发送
+        text_content = f"频道 {item.chan_title} 最新 Feed\n---\n标题: {item.title}\n---\n"
         if not self.is_hide_url:
-            comps.append(Comp.Plain(f"链接: {item.link}\n---\n"))
-        comps.append(Comp.Plain(item.description+"\n---\n"))
+            text_content += f"链接: {item.link}\n---\n"
+        text_content += f"{item.description}\n---\n"
+        comps.append(Comp.Plain(text_content))
+
         if self.is_read_pic and item.pic_urls:
             # 如果max_pic_item为-1则不限制图片数量
             temp_max_pic_item = len(item.pic_urls) if self.max_pic_item == -1 else self.max_pic_item
             for pic_url in item.pic_urls[:temp_max_pic_item]:
                 base64str = await self.pic_handler.modify_corner_pixel_to_base64(pic_url)
                 if base64str is None:
-                    comps.append(Comp.Plain("图片链接读取失败\n"))
                     continue
                 else:
                     comps.append(Comp.Image.fromBase64(base64str))
