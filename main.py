@@ -21,8 +21,8 @@ from typing import List
     "astrbot_plugin_rss",
     "Soulter",
     "RSS订阅插件",
-    "1.1.0",
-    "https://github.com/Soulter/astrbot_plugin_rss",
+    "1.1.3",
+    "https://github.com/FreeMagic200/astrbot_plugin_rss",
 )
 class RssPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig) -> None:
@@ -326,10 +326,10 @@ class RssPlugin(Star):
         """组装消息链"""
         comps = []
         # 将所有文本内容合并为一个消息，避免平台分段发送
-        text_content = f"频道 {item.chan_title} 最新 Feed\n---\n标题: {item.title}\n---\n"
+        text_content = f"频道 {item.chan_title} 最新 Feed\n\n标题: {item.title}\n\n"
         if not self.is_hide_url:
-            text_content += f"链接: {item.link}\n---\n"
-        text_content += f"{item.description}\n---\n"
+            text_content += f"链接: {item.link}\n\n"
+        text_content += f"{item.description}\n\n"
         comps.append(Comp.Plain(text_content))
 
         if self.is_read_pic and item.pic_urls:
