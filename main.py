@@ -175,7 +175,7 @@ class RssPlugin(Star):
             self.logger.error(f"rss: 无法解析站点 {url} 的RSS信息")
             return []
         root = etree.fromstring(text)
-        items = root.xpath("//item")
+        items = root.xpath("//*[local-name()='item']")
 
         cnt = 0
         rss_items = []
@@ -188,15 +188,20 @@ class RssPlugin(Star):
                     else "未知频道"
                 )
 
-                title = item.xpath("title")[0].text
+                title = item.xpath("./*[local-name()='title']")[0].text
                 if len(title) > self.title_max_length:
                     title = title[: self.title_max_length] + "..."
 
-                link = item.xpath("link")[0].text
-                if not re.match(r"^https?://", link):
+                link_elem = item.xpath("./*[local-name()='link']")
+                if link_elem:
+                    link = link_elem[0].text or ""
+                else:
+                    link = ""
+                if link and not re.match(r"^https?://", link):
                     link = self.data_handler.get_root_url(url) + link
 
-                description = item.xpath("description")[0].text
+                description_elem = item.xpath("./*[local-name()='description']")
+                description = description_elem[0].text if description_elem else ""
 
                 pic_url_list = self.data_handler.strip_html_pic(description)
                 description = self.data_handler.strip_html(description)
@@ -206,9 +211,10 @@ class RssPlugin(Star):
                         description[: self.description_max_length] + "..."
                     )
 
-                if item.xpath("pubDate"):
+                pub_date_elem = item.xpath("./*[local-name()='pubDate']")
+                if pub_date_elem:
                     # 根据 pubDate 判断是否为新内容
-                    pub_date = item.xpath("pubDate")[0].text
+                    pub_date = pub_date_elem[0].text
                     pub_date_parsed = time.strptime(
                         pub_date.replace("GMT", "+0000"),
                         "%a, %d %b %Y %H:%M:%S %z",
@@ -233,6 +239,8 @@ class RssPlugin(Star):
                         break
                 else:
                     # 根据 link 判断是否为新内容
+                    pub_date_timestamp = 0
+                    pub_date = ""
                     if link != after_link:
                         rss_items.append(
                             RSSItem(chan_title, title, link, description, "", 0, pic_url_list)
@@ -280,6 +288,8 @@ class RssPlugin(Star):
         user = message.unified_msg_origin
         if url in self.data_handler.data:
             latest_item = await self.poll_rss(url)
+            if not latest_item:
+                return message.plain_result("解析RSS失败：无法获取订阅内容")
             self.data_handler.data[url]["subscribers"][user] = {
                 "cron_expr": cron_expr,
                 "last_update": latest_item[0].pubDate_timestamp,
@@ -292,6 +302,9 @@ class RssPlugin(Star):
                 latest_item = await self.poll_rss(url)
             except Exception as e:
                 return message.plain_result(f"解析频道信息失败: {str(e)}")
+
+            if not latest_item:
+                return message.plain_result("解析RSS失败：无法获取订阅内容")
 
             self.data_handler.data[url] = {
                 "subscribers": {
