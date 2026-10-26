@@ -174,7 +174,7 @@ class RssPlugin(Star):
         if text is None:
             self.logger.error(f"rss: 无法解析站点 {url} 的RSS信息")
             return []
-        root = etree.fromstring(text)
+        root = etree.fromstring(text, etree.XMLParser(recover=True))
         items = root.xpath("//item")
 
         cnt = 0
@@ -188,23 +188,33 @@ class RssPlugin(Star):
                     else "未知频道"
                 )
 
-                title = item.xpath("title")[0].text
-                if len(title) > self.title_max_length:
-                    title = title[: self.title_max_length] + "..."
+                # recover=True: WAF/Cloudflare block pages and feeds with
+                # undefined HTML entities (e.g. &bull;) would otherwise raise
+                # XMLSyntaxError outside the per-item try and crash the whole
+                # cron job on every tick
+
+                title = (item.xpath("title")[0].text or "").strip()
 
                 link = item.xpath("link")[0].text
                 if not re.match(r"^https?://", link):
                     link = self.data_handler.get_root_url(url) + link
 
-                description = item.xpath("description")[0].text
-
-                pic_url_list = self.data_handler.strip_html_pic(description)
-                description = self.data_handler.strip_html(description)
-
-                if len(description) > self.description_max_length:
-                    description = (
-                        description[: self.description_max_length] + "..."
+                desc_els = item.xpath("description")
+                raw_desc = "".join(desc_els[0].itertext()) if desc_els else ""
+                description = self.data_handler.strip_html(raw_desc)
+                # Many feeds (e.g. WordPress) keep the full article in
+                # content:encoded and only a teaser in description; keep
+                # whichever carries more text
+                enc_els = item.xpath("*[local-name()='encoded']")
+                if enc_els:
+                    full = self.data_handler.strip_html(
+                        "".join(enc_els[0].itertext())
                     )
+                    if len(full) > len(description):
+                        raw_desc = "".join(enc_els[0].itertext())
+                        description = full
+
+                pic_url_list = self.data_handler.strip_html_pic(raw_desc)
 
                 if item.xpath("pubDate"):
                     # 根据 pubDate 判断是否为新内容
@@ -312,10 +322,18 @@ class RssPlugin(Star):
     async def _get_chain_components(self, item: RSSItem):
         """组装消息链"""
         comps = []
-        comps.append(Comp.Plain(f"频道 {item.chan_title} 最新 Feed\n---\n标题: {item.title}\n---\n"))
+        # Length limits are applied at display time so the data layer keeps
+        # the full feed text
+        title = item.title
+        if len(title) > self.title_max_length:
+            title = title[: self.title_max_length] + "..."
+        description = item.description
+        if len(description) > self.description_max_length:
+            description = description[: self.description_max_length] + "..."
+        comps.append(Comp.Plain(f"频道 {item.chan_title} 最新 Feed\n---\n标题: {title}\n---\n"))
         if not self.is_hide_url:
             comps.append(Comp.Plain(f"链接: {item.link}\n---\n"))
-        comps.append(Comp.Plain(item.description+"\n---\n"))
+        comps.append(Comp.Plain(description+"\n---\n"))
         if self.is_read_pic and item.pic_urls:
             # 如果max_pic_item为-1则不限制图片数量
             temp_max_pic_item = len(item.pic_urls) if self.max_pic_item == -1 else self.max_pic_item
